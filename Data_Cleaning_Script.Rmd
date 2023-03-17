@@ -1,0 +1,42 @@
+---
+title: "London Notebook"
+author: "Alec Wick"
+date: "2023-03-11"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library('dplyr')
+library("writexl")
+library('dplyr')
+library('ggplot2')
+library('reshape2')
+library('tidyr')
+library('GGally')
+library('maptools')
+library('knitr')
+library('ggrepel')
+library('tinytex')
+library('forcats')
+library('stringr')
+```
+
+#Dataset
+```{r}
+LD<-London_Dataset
+```
+
+```{r}
+BoroughFreq<-data.frame(table(LD$IncGeo_BoroughName))
+
+f<-ggplot(BoroughFreq,aes(reorder(Var1,+Freq),Freq))
+f+geom_col(fill="296d98")+
+  coord_flip()+
+  xlab("")+
+  ylab("Frequency")
+```
+
