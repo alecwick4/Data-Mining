@@ -4,39 +4,153 @@ author: "Alec Wick"
 date: "2023-03-11"
 output: html_document
 ---
-
+#Kniter Setup
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+#Load Libraries
 ```{r}
-library('dplyr')
-library("writexl")
-library('dplyr')
-library('ggplot2')
-library('reshape2')
-library('tidyr')
-library('GGally')
-library('maptools')
-library('knitr')
-library('ggrepel')
-library('tinytex')
-library('forcats')
-library('stringr')
+library(dplyr)
+library(writexl)
+library(dplyr)
+library(ggplot2)
+library(reshape2)
+library(tidyr)
+library(GGally)
+library(maptools)
+library(knitr)
+library(ggrepel)
+library(tinytex)
+library(forcats)
+library(stringr)
+library(lubridate)
+library(ggmap)
+library(osmdata)
+library(leaflet)
+library(leaflet.extras)
+library(fpp2)
 ```
 
-#Dataset
+#Laoad in Dataset
 ```{r}
 LD<-London_Dataset
 ```
 
+#Data Cleaning Script
 ```{r}
-BoroughFreq<-data.frame(table(LD$IncGeo_BoroughName))
+#Renames
+LD<-rename(LD,Incident_Number=IncidentNumber)
+LD<-rename(LD,Date=DateOfCall)
+LD<-rename(LD,Year=CalYear)
+LD<-rename(LD,Time=TimeOfCall)
+LD<-rename(LD,Department_Group=IncidentGroup)
+LD<-rename(LD,Property_Category=PropertyCategory)
+LD<-rename(LD,Property_Type=PropertyType)
+LD<-rename(LD,Address_Qualifier=AddressQualifier)
+LD<-rename(LD,Postcode_District=Postcode_district)
+LD<-rename(LD,Borough_Name=ProperCase)
+LD<-rename(LD,Ward_Name=IncGeo_WardName)
+LD<-rename(LD,Fire_Station=IncidentStationGround)
 
-f<-ggplot(BoroughFreq,aes(reorder(Var1,+Freq),Freq))
-f+geom_col(fill="296d98")+
-  coord_flip()+
-  xlab("")+
-  ylab("Frequency")
+#Remove Columns
+LD$HourOfCall<-NULL
+LD$StopCodeDescription<-NULL
+LD$SpecialServiceType<-NULL
+LD$Postcode_full<-NULL
+LD$UPRN<-NULL
+LD$USRN<-NULL
+LD$IncGeo_BoroughCode<-NULL
+LD$IncGeo_BoroughName<-NULL
+LD$IncGeo_WardCode<-NULL
+LD$IncGeo_WardNameNew<-NULL
+LD$Easting_m<-NULL
+LD$Northing_m<-NULL
+LD$Easting_rounded<-NULL
+LD$Northing_rounded<-NULL
+LD$FRS<-NULL
+
+#Borough Renames
+LD$Borough_Name[LD$Borough_Name=='Kensington And chelsea']<-'Kensington and Chelsea'
+LD$Borough_Name[LD$Borough_Name=='City Of london']<-'City of London'
+LD$Borough_Name[LD$Borough_Name=='Hammersmith And fulham']<-'Hammersmith and Fulham'
+LD$Borough_Name[LD$Borough_Name=='Kingston Upon thames']<-'Kingston upon Thames'
+LD$Borough_Name[LD$Borough_Name=='Richmond Upon thames']<-'Richmond upon Thames'
+LD$Borough_Name[LD$Borough_Name=='Barking And dagenham']<-'Barking and Dagenham'
+```
+
+#Data Transformations
+```{r}
+#Data Engineering
+LD$Date<-dmy(LD$Date)
+LD$Date<-format(as.Date(LD$Date,format="%Y-%m-%d"),"%d-%m-%Y")
+LD$Week_Day<-weekdays(as.Date(LD$Date))
+LD$Month_Year<-format(as.Date(LD$Date,format="%d-%m-%Y"),"%m-%Y")
+LD$Arrival_Minutes_FirstResponse<-round(as.numeric(LD$FirstPumpArriving_AttendanceTime)/60,digits=2)
+LD$Arrival_Minutes_SecondResponse<-round(as.numeric(LD$SecondPumpArriving_AttendanceTime)/60,digits=2)
+```
+
+#Visualization 
+```{r}
+#Timeline (April 1, 2020 - October 30, 2022)
+
+#Average Response Time by Borough
+RSB<- LD %>%
+        select(Borough_Name,Arrival_Minutes_FirstResponse) %>%
+        group_by(Borough_Name) %>%
+        summarise(AVG_RT=mean(Arrival_Minutes_FirstResponse,na.rm=TRUE))
+
+p1<-ggplot(RSB,aes(x=reorder(Borough_Name,-AVG_RT),y=AVG_RT))+geom_bar(stat="identity",fill='steelblue',color='white')+coord_flip()+ylab("Minutes")+xlab("")+ggtitle("Average Response Time by Borough")
+p1
+
+#Heat Map
+LD_Map<-LD %>%
+  select(Latitude,Longitude) %>%
+  na.omit()
+
+london_map = get_stamenmap(getbb('London'), maptype="terrain", zoom=10)
+ggmap(london_map) + 
+    geom_density2d(data = LD_Map, aes(x = Longitude, y = Latitude)) +
+    stat_density2d(data = LD_Map, aes(x = Longitude, y = Latitude, fill = ..level..,alpha = ..level..),size = 0.01, bins = 16, geom = 'polygon') +
+    scale_fill_gradient(low = "green", high = "red") +
+    scale_alpha(range = c(0, 1), guide = FALSE) +
+    theme(legend.position = "none", 
+          axis.title = element_blank(), 
+          text = element_text(size = 12)) +
+    theme(axis.text.x=element_blank(),
+          axis.ticks.x=element_blank(),
+          axis.text.y=element_blank(),
+          axis.ticks.y=element_blank())
+
+LD_Map%>%
+      leaflet() %>%
+      addTiles() %>%
+      addHeatmap(lng = ~as.numeric(LD_Map$Longitude),lat = ~as.numeric(LD_Map$Latitude),radius = 10,max=100)
+
+#Time Series Forecast
+LD_TS<-data.frame(table(LD$Month_Year))
+rename(LD_TS,Date=Var1)
+Y<-ts(LD_TS[,2],start=c(2020,4),frequency = 12)
+autoplot(Y)+ylab("Number of Fire Calls")+ggtitle("Time Series")
+DY <- diff(Y)
+ggseasonplot(DY)+ggtitle("Seasonal Change")+ylab("Difference in Number of Fire Calls")
+ggsubseriesplot(DY)+ggtitle("Seasonal Difference")+ylab("Difference in Number of Fire Calls")
+
+# #Modeling
+# fit<- snaive(DY)
+# print(summary(fit))
+# checkresiduals(fit)
+# fit_ets <- ets(Y)
+# print(summary(fit_ets))
+# checkresiduals(fit_ets)
+# fit_arima<-auto.arima(Y,D=1,d=1,stepwise = FALSE,approximation = FALSE,trace = TRUE)
+# print(summary(fit_arima))
+# checkresiduals(fit_arima)
+# fcst <- forecast(fit_ets,h=2)
+# autoplot(fcst)
+```
+
+```{r}
+write_xlsx(LD, "/Users/alecwick/Desktop/London-Dataset-Clean.xlsx")
 ```
 
